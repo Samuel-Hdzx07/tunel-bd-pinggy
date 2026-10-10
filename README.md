@@ -1,6 +1,6 @@
 # 🎯 Puntos extra: Bases de datos
 
-> **Autor:** _TU NOMBRE_ · **Materia:** _MATERIA_ · **Profesor:** _NOMBRE DEL PROFE_ · **Fecha:** _FECHA_
+> **Autor:** Hernandez Barrios Samuel Rodrigo · **Materia:** Bases de Datos · **Profesor:** Hurtado Aviles Gabriel 
 
 Este repositorio documenta dos actividades independientes:
 

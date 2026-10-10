@@ -1,151 +1,148 @@
-# 🔌 Actividad 1: Túnel a una base de datos con Pinggy
+# Actividad 1: Túnel a una base de datos PostgreSQL con Pinggy
 
 ## 1. Objetivo
 
-Crear un **túnel TCP público** con [Pinggy](https://pinggy.io) hacia una base de datos que corre en mi computadora, para que el profesor pueda conectarse con la dirección generada desde cualquier lugar, sin que yo tenga que abrir puertos en el router ni tener IP pública.
+Crear un **túnel TCP público** con [Pinggy](https://pinggy.io) hacia una base de datos PostgreSQL que corre en mi computadora dentro de un contenedor Docker, para que el profesor pueda conectarse con la dirección generada desde cualquier lugar, sin abrir puertos en el router ni tener IP pública.
 
-> La base de datos usada es **solo de prueba** (una tabla simple). El objetivo es demostrar el túnel, no el diseño de la BD.
+> La base de datos es **solo de prueba** (tabla `alumnos`). El objetivo es demostrar el túnel, no el diseño de la BD.
 
 ## 2. Cómo funciona
 
 ```
  Profesor (cualquier lugar)
-        │  mysql -h <host_pinggy> -P <puerto_publico> -u profe -p
+        │  psql -h <host_pinggy> -p <puerto_publico> -U <usuario> -d proyectoclase
         ▼
  ┌───────────────────┐
  │  Servidor Pinggy  │   ← dirección pública (host + puerto)
  └─────────┬─────────┘
-           │  túnel SSH (lo inicio yo desde mi PC hacia afuera)
+           │  túnel TCP reverso sobre SSH (lo inicio yo desde mi PC)
            ▼
  ┌───────────────────┐
  │  Mi computadora   │
- │  BD en localhost  │   ← puerto local (3306 MySQL / 5432 PostgreSQL)
+ │  Docker           │
+ │  └ PostgreSQL     │   ← puerto local 5433
  └───────────────────┘
 ```
 
 ## 3. Herramientas
 
-| Herramienta | Versión | Uso |
-|---|---|---|
-| Sistema operativo | _Windows 11_ | |
-| Motor de BD | _MySQL / PostgreSQL (versión)_ | BD de prueba |
-| Pinggy | — | Túnel público |
-| OpenSSH | _(versión)_ | Pinggy funciona sobre SSH |
-| Cliente de BD | _DBeaver / Workbench / consola_ | Probar la conexión |
+| Herramienta | Uso |
+|---|---|
+| Windows (CMD / Git Bash) | Terminal para correr los comandos |
+| Docker | Contenedor donde corre PostgreSQL |
+| PostgreSQL 16 | Motor de la base de datos |
+| `psql` | Cliente para probar la conexión |
+| Pinggy (plan gratuito) | Túnel TCP público |
+| OpenSSH | Pinggy funciona sobre SSH |
+| Teams | Canal por el que se enviaron los accesos al profesor |
 
 ## 4. Procedimiento
 
-### Paso 1. Crear una BD de prueba
-
-```sql
-CREATE DATABASE prueba_tunel;
-USE prueba_tunel;
-
-CREATE TABLE saludos (
-  id INT PRIMARY KEY AUTO_INCREMENT,
-  mensaje VARCHAR(100)
-);
-
-INSERT INTO saludos (mensaje) VALUES
-  ('Hola profe, si ves esto el tunel funciona'),
-  ('Conectado desde otra red');
-```
-
-📸 `img/01-bd-local.png`
-
-### Paso 2. Crear un usuario de solo lectura para el profesor
-
-No se comparte el usuario administrador.
-
-```sql
--- MySQL
-CREATE USER 'profe'@'%' IDENTIFIED BY 'CLAVE_TEMPORAL_FUERTE';
-GRANT SELECT ON prueba_tunel.* TO 'profe'@'%';
-FLUSH PRIVILEGES;
-```
-
-```sql
--- PostgreSQL
-CREATE USER profe WITH PASSWORD 'CLAVE_TEMPORAL_FUERTE';
-GRANT CONNECT ON DATABASE prueba_tunel TO profe;
-GRANT USAGE ON SCHEMA public TO profe;
-GRANT SELECT ON ALL TABLES IN SCHEMA public TO profe;
-```
-
-📸 `img/02-usuario-profe.png`
-
-### Paso 3. Abrir el túnel TCP
+### Paso 1. Levantar PostgreSQL en Docker
 
 ```bash
-# MySQL
-ssh -p 443 -R0:localhost:3306 tcp@a.pinggy.io
+docker run --name pg-proyecto \
+  -e POSTGRES_PASSWORD=<contraseña> \
+  -e POSTGRES_DB=proyectoclase \
+  -p 5433:5432 \
+  -d postgres:16
+```
 
-# PostgreSQL
-ssh -p 443 -R0:localhost:5432 tcp@a.pinggy.io
+El contenedor se publica en el puerto **5433** de mi PC (y escucha en el 5432 por dentro). Más abajo explico por qué no usé el 5432.
+
+Verificar que está corriendo:
+
+```bash
+docker ps --filter name=pg-proyecto
+```
+
+![Contenedor corriendo](img/01-docker-corriendo.png)
+
+### Paso 2. Crear la tabla de prueba
+
+Entrar a la base dentro del contenedor:
+
+```bash
+docker exec -it pg-proyecto psql -U postgres -d proyectoclase
+```
+
+```sql
+CREATE TABLE alumnos (
+  id SERIAL PRIMARY KEY,
+  nombre VARCHAR(100)
+);
+
+INSERT INTO alumnos (nombre) VALUES
+  ('Alumno de prueba 1'),
+  ('Alumno de prueba 2');
+
+SELECT * FROM alumnos;
+```
+
+![Tabla alumnos](img/02-tabla-alumnos.png)
+
+### Paso 3. Abrir el túnel TCP con Pinggy
+
+```bash
+ssh -p 443 -R0:localhost:5433 tcp@a.pinggy.io
 ```
 
 - `-p 443`: se conecta a Pinggy por el puerto 443.
-- `-R0:localhost:3306`: reenvía lo que llegue al puerto público hacia el puerto local de la BD.
+- `-R0:localhost:5433`: reenvía lo que llegue al puerto público hacia el puerto 5433 de mi PC, donde está el contenedor.
 - `tcp@a.pinggy.io`: pide un túnel de tipo **TCP** (el HTTP no sirve para bases de datos).
 
-Pinggy imprime una dirección parecida a:
+Pinggy imprime una dirección con esta forma:
 
 ```
-tcp://xxxxx.a.free.pinggy.link:NNNNN
+tcp://<host_pinggy>:<puerto>
 ```
 
-- **Host:** `xxxxx.a.free.pinggy.link`
-- **Puerto:** `NNNNN`
+![Túnel activo](img/03-pinggy-tunel.png)
 
-📸 `img/03-pinggy-url.png`
+> ⚠️ El túnel solo vive mientras la terminal esté abierta. En el plan gratuito Pinggy avisa que **expira en 60 minutos**, y la dirección cambia cada vez que se reinicia el túnel.
 
-> ⚠️ El túnel solo vive mientras la terminal esté abierta, y en el plan gratuito tiene duración limitada y la dirección cambia al reiniciarlo (verificar límites actuales en la web de Pinggy).
+### Paso 4. Probar la conexión por la dirección pública
 
-### Paso 4. Probar desde otra red
-
-Se probó usando los datos móviles del celular para confirmar que es accesible desde fuera de mi red.
+Para comprobar que funciona, me conecté usando la dirección pública del túnel (no `localhost`), de modo que el tráfico sale a internet y regresa a mi contenedor a través de Pinggy:
 
 ```bash
-# MySQL
-mysql -h xxxxx.a.free.pinggy.link -P NNNNN -u profe -p
-
-# PostgreSQL
-psql -h xxxxx.a.free.pinggy.link -p NNNNN -U profe -d prueba_tunel
+psql -h <host_pinggy> -p <puerto> -U <usuario> -d proyectoclase
 ```
 
 ```sql
-SELECT * FROM saludos;
+SELECT * FROM alumnos;
 ```
 
-📸 `img/04-conexion-remota.png`
-📸 `img/05-consulta-remota.png`
+![Conexión remota](img/04-conexion-remota.png)
 
-### Paso 5. Entregar los datos al profesor
+### Paso 5. Enviar los accesos al profesor
 
-Se enviaron **por privado** (no en este repositorio):
+Los datos de conexión se enviaron por mensaje privado en Teams:
 
 | Dato | Valor |
 |---|---|
-| Host | _(por privado)_ |
-| Puerto | _(por privado)_ |
-| Usuario | `profe` |
-| Contraseña | _(por privado)_ |
-| Base de datos | `prueba_tunel` |
+| Host | `<host_pinggy>` |
+| Puerto | `<puerto>` |
+| Base de datos | `proyectoclase` |
+| Usuario | `<usuario>` |
+| Contraseña | `<contraseña>` |
 
-## 5. Problemas y soluciones
+Por seguridad, los valores reales **no** se publican en este repositorio, y por eso tampoco se incluye captura del mensaje.
+
+## 5. Problemas encontrados y soluciones
 
 | Problema | Causa | Solución |
 |---|---|---|
-| _(ej. Connection refused)_ | _Túnel cerrado o BD apagada_ | _Reabrir túnel / iniciar servicio_ |
-| _(agrega los tuyos)_ | | |
+| `psql: error: ... Name or service not known` / `Non-existent domain` | La dirección de Pinggy cambia cada vez que se reinicia el túnel, y estaba usando una dirección anterior | Copiar la dirección nueva que muestra la terminal del túnel y comprobarla con `nslookup` antes de conectar |
+| `FATAL: la autentificación password falló` aunque la contraseña era correcta | Había **dos procesos escuchando en el puerto 5432** (el contenedor de Docker y otra instancia de PostgreSQL en Windows), así que la conexión llegaba al servidor equivocado. Lo comprobé con `netstat -ano \| findstr :5432` | Recreé el contenedor publicándolo en el puerto **5433** (`-p 5433:5432`) y abrí el túnel hacia ese puerto |
 
 ## 6. Seguridad
 
-- ✅ Usuario de solo lectura, no administrador.
-- ✅ Contraseña temporal; se elimina el usuario al terminar la revisión.
-- ✅ Túnel cerrado cuando no se usa (`Ctrl + C`).
-- ❌ No se suben contraseñas, hosts reales ni archivos `.env` al repositorio.
+- Los accesos se enviaron por privado, no en el repositorio.
+- Las capturas tienen tapados el host, el puerto y mi IP pública.
+- El túnel se cierra cuando no se usa (`Ctrl + C`).
+- Mejora pendiente: para una próxima vez, crear un usuario de solo lectura para el profesor en vez de compartir el superusuario `postgres`.
 
 ## 7. Conclusión
 
-_(Escribe qué aprendiste y qué limitaciones notaste: el túnel es temporal y depende de que mi PC esté encendida.)_
+Aprendí a crear un túnel de forma gratuita y bastante accesible. El único inconveniente que encontré fue la duración del túnel, que en el plan gratuito solo me permitía una hora. Aun así, durante mi investigación me di cuenta de que existe una gran variedad de servicios que resuelven esta problemática; la diferencia está en el plan (en su mayoría tienen un costo) y en las herramientas para llevarlo a cabo.
