@@ -1,4 +1,4 @@
-# 🎯 Puntos extra: Bases de datos
+# Actividades extra: Bases de datos
 
 > **Autor:** Hernandez Barrios Samuel Rodrigo · **Materia:** Bases de Datos · **Profesor:** Hurtado Aviles Gabriel 
 
@@ -17,5 +17,5 @@ Este repositorio documenta dos actividades independientes:
 │   └── img/          ← capturas del túnel
 └── 02-hosting-bd/
     ├── README.md
-    └── img/          ← capturas del hosting
+
 ```
